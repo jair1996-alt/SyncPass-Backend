@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+build/
+.gradle/
+.idea/
+*.iml
+*.log
+*.jar
+*.backup
+*.pem
+*.key
+*.p12
+*.pfx
