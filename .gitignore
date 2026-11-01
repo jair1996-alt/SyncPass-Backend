@@ -1,3 +1,4 @@
+
 .env
 .env.*
 !.env.example
@@ -7,6 +8,7 @@ build/
 *.iml
 *.log
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.backup
 *.pem
 *.key
