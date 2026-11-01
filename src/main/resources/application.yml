@@ -32,6 +32,13 @@ aws:
     client-secret: ${AWS_COGNITO_CLIENT_SECRET:}
     allowed-client-ids: ${AWS_COGNITO_ALLOWED_CLIENT_IDS:}
 
+    # Correspondencia de roles SyncPass con grupos AWS Cognito
+    groups:
+      estudiante: ${AWS_COGNITO_GROUP_ESTUDIANTE:estudiante}
+      profesor: ${AWS_COGNITO_GROUP_PROFESOR:profesor}
+      coordinador: ${AWS_COGNITO_GROUP_COORDINADOR:coordinador}
+      administrador: ${AWS_COGNITO_GROUP_ADMINISTRADOR:administrador}
+
 # Configuración CORS
 # Habilitar/deshabilitar CORS completamente (útil para deshabilitar cuando pasa por API Gateway)
 app:

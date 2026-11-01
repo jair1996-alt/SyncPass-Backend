@@ -3,21 +3,33 @@ package com.duoc.cursos.config;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.jspecify.annotations.NonNull;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
 import org.springframework.http.HttpMethod;
+
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+
 import org.springframework.security.web.SecurityFilterChain;
+
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
@@ -25,37 +37,83 @@ public class SecurityConfig {
 
     private final CorsProperties corsProperties;
 
+    private static final Set<String> ROLES_PERMITIDOS = Set.of(
+            "ESTUDIANTE",
+            "PROFESOR",
+            "COORDINADOR",
+            "ADMINISTRADOR"
+    );
+
     public SecurityConfig(CorsProperties corsProperties) {
         this.corsProperties = corsProperties;
     }
 
     /**
-     * Convierte los grupos de AWS Cognito en roles de Spring.
+     * Convierte los grupos de AWS Cognito
+     * en autoridades de Spring Security.
      *
-     * Ejemplo:
-     * cognito:groups = ["PROFESOR", "COORDINADOR"]
+     * Ejemplos:
      *
-     * Resultado:
-     * ROLE_PROFESOR
-     * ROLE_COORDINADOR
+     * Cognito: administrador
+     * Spring:  ROLE_ADMINISTRADOR
+     *
+     * Cognito: PROFESOR
+     * Spring:  ROLE_PROFESOR
+     *
+     * Cognito: coordinador
+     * Spring:  ROLE_COORDINADOR
+     *
+     * Los nombres se normalizan a mayúsculas.
+     * Solo se aceptan los cuatro roles definidos.
      */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
 
-        JwtGrantedAuthoritiesConverter grupos =
-                new JwtGrantedAuthoritiesConverter();
-
-        grupos.setAuthoritiesClaimName("cognito:groups");
-        grupos.setAuthorityPrefix("ROLE_");
-
         JwtAuthenticationConverter converter =
                 new JwtAuthenticationConverter();
 
-        converter.setJwtGrantedAuthoritiesConverter(grupos);
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+
+            List<String> grupos =
+                    jwt.getClaimAsStringList("cognito:groups");
+
+            if (grupos == null || grupos.isEmpty()) {
+                return Set.<GrantedAuthority>of();
+            }
+
+            Collection<GrantedAuthority> autoridades =
+                    grupos.stream()
+
+                            .filter(grupo -> grupo != null)
+
+                            .map(grupo ->
+                                    grupo.trim()
+                                            .toUpperCase(Locale.ROOT)
+                            )
+
+                            .filter(ROLES_PERMITIDOS::contains)
+
+                            .map(rol ->
+                                    (GrantedAuthority)
+                                            new SimpleGrantedAuthority(
+                                                    "ROLE_" + rol
+                                            )
+                            )
+
+                            .collect(Collectors.toSet());
+
+            return autoridades;
+        });
 
         return converter;
     }
 
+    /**
+     * Configuración principal de seguridad.
+     *
+     * Cada endpoint mantiene sus permisos.
+     * Los endpoints no definidos quedan bloqueados.
+     */
     @Bean
     public SecurityFilterChain filterChain(
             HttpSecurity http,
@@ -71,20 +129,30 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(authz -> authz
 
-                        // Preflight CORS
-                        .requestMatchers(HttpMethod.OPTIONS, "/**")
-                        .permitAll()
+                        // Solicitudes preflight CORS.
+                        .requestMatchers(
+                                HttpMethod.OPTIONS,
+                                "/**"
+                        ).permitAll()
 
-                        // Alta de cuentas: exclusivamente ADMINISTRADOR.
-                        // El registro publico queda cerrado.
+                        /**
+                         * REGISTRO ADMINISTRATIVO.
+                         *
+                         * Solo ADMINISTRADOR puede crear usuarios.
+                         * El registro público permanece bloqueado.
+                         */
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/registro"
                         ).hasRole("ADMINISTRADOR")
 
-                        // Endpoints publicos existentes
-                        .requestMatchers(HttpMethod.GET, "/api/health")
-                        .permitAll()
+                        /**
+                         * ENDPOINTS PÚBLICOS.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/health"
+                        ).permitAll()
 
                         .requestMatchers(
                                 HttpMethod.POST,
@@ -94,11 +162,13 @@ public class SecurityConfig {
                                 "/api/auth/olvide-contrasena/confirmar"
                         ).permitAll()
 
-                        // Compatibilidad con notificaciones actuales.
-                        // Este permiso debe auditarse por separado.
-                        // Notificaciones: acceso administrativo temporal.
-                        // Se ampliaran permisos cuando exista control
-                        // de destinatarios y alcance academico.
+                        /**
+                         * NOTIFICACIONES.
+                         *
+                         * Acceso administrativo temporal.
+                         * Su alcance deberá revisarse cuando
+                         * exista control de destinatarios.
+                         */
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/notificar"
@@ -109,8 +179,11 @@ public class SecurityConfig {
                                 "/api/notificar/topic/*"
                         ).hasRole("ADMINISTRADOR")
 
-
-                        // CONSULTAR PROYECTOS
+                        /**
+                         * CONSULTA DE PROYECTOS.
+                         *
+                         * Accesible para los cuatro roles.
+                         */
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/proyectos",
@@ -122,22 +195,39 @@ public class SecurityConfig {
                                 "ADMINISTRADOR"
                         )
 
-                        // MODIFICAR PROYECTOS
+                        /**
+                         * MODIFICACIÓN DE PROYECTOS.
+                         *
+                         * Las operaciones no cubiertas por
+                         * los GET anteriores requieren
+                         * rol ADMINISTRADOR.
+                         */
                         .requestMatchers(
                                 "/api/proyectos",
                                 "/api/proyectos/**"
                         ).hasRole("ADMINISTRADOR")
 
-                        // PARTICIPANTES
+                        /**
+                         * PARTICIPANTES.
+                         *
+                         * Acceso exclusivo de ADMINISTRADOR.
+                         */
                         .requestMatchers(
                                 "/api/participantes",
                                 "/api/participantes/**"
                         ).hasRole("ADMINISTRADOR")
 
-                        // No abrir automaticamente futuros endpoints
+                        /**
+                         * Cualquier endpoint futuro
+                         * queda bloqueado por defecto.
+                         */
                         .anyRequest().denyAll()
                 )
 
+                /**
+                 * Validación del JWT mediante
+                 * Spring OAuth2 Resource Server.
+                 */
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(
@@ -152,6 +242,12 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Configuración CORS.
+     *
+     * Conserva las propiedades administradas
+     * mediante CorsProperties.
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
@@ -164,6 +260,7 @@ public class SecurityConfig {
             configuration.setAllowedMethods(List.of());
 
             return new UrlBasedCorsConfigurationSource() {
+
                 @Override
                 public CorsConfiguration getCorsConfiguration(
                         @NonNull HttpServletRequest request
@@ -196,7 +293,8 @@ public class SecurityConfig {
 
         configuration.setAllowedMethods(
                 Arrays.stream(
-                                corsProperties.getAllowedMethods().split(",")
+                                corsProperties.getAllowedMethods()
+                                        .split(",")
                         )
                         .map(String::trim)
                         .toList()
@@ -220,7 +318,8 @@ public class SecurityConfig {
 
         configuration.setExposedHeaders(
                 Arrays.stream(
-                                corsProperties.getExposedHeaders().split(",")
+                                corsProperties.getExposedHeaders()
+                                        .split(",")
                         )
                         .map(String::trim)
                         .toList()
