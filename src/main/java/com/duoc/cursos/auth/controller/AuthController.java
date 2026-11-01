@@ -1,3 +1,4 @@
+
 package com.duoc.cursos.auth.controller;
 
 import com.duoc.cursos.auth.dto.*;
@@ -17,14 +18,29 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/registro")
-    public ResponseEntity<ApiResponse<UsuarioResponse>> registrar(@Valid @RequestBody RegistroRequest req) {
-        UsuarioResponse usuario = authService.registrar(req.getEmail(), req.getPassword(), req.getNombre(), req.getRoles());
-        return ResponseEntity.ok(ApiResponse.ok(usuario, "Usuario registrado exitosamente"));
+    public ResponseEntity<ApiResponse<UsuarioResponse>> registrar(
+            @Valid @RequestBody RegistroRequest req
+    ) {
+        UsuarioResponse usuario = authService.registrar(
+                req.getEmail(),
+                req.getPassword(),
+                req.getNombre(),
+                req.getRoles()
+        );
+
+        return ResponseEntity.ok(
+                ApiResponse.ok(usuario, "Usuario registrado exitosamente")
+        );
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest req) {
-        AuthenticationResultType result = authService.login(req.getEmail(), req.getPassword());
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
+            @Valid @RequestBody LoginRequest req
+    ) {
+        AuthenticationResultType result = authService.login(
+                req.getEmail(),
+                req.getPassword()
+        );
 
         LoginResponse response = new LoginResponse();
         response.setAccessToken(result.accessToken());
@@ -32,28 +48,61 @@ public class AuthController {
         response.setRefreshToken(result.refreshToken());
         response.setExpiresIn(result.expiresIn());
 
-        return ResponseEntity.ok(ApiResponse.ok(response, "Login exitoso"));
+        return ResponseEntity.ok(
+                ApiResponse.ok(response, "Login exitoso")
+        );
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout(@RequestHeader(value = "Authorization", required = false) String bearerToken) {
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestHeader(
+                    value = "Authorization",
+                    required = false
+            ) String bearerToken
+    ) {
         if (bearerToken == null || !bearerToken.startsWith("Bearer ")) {
-            return ResponseEntity.badRequest().body(ApiResponse.error("Token de autorización requerido"));
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Token de autorización requerido")
+            );
         }
+
         String accessToken = bearerToken.substring(7);
         authService.logout(accessToken);
-        return ResponseEntity.ok(ApiResponse.ok(null, "Logout exitoso"));
+
+        return ResponseEntity.ok(
+                ApiResponse.ok(null, "Logout exitoso")
+        );
     }
 
     @PostMapping("/olvide-contrasena/solicitar")
-    public ResponseEntity<ApiResponse<Void>> solicitarPassword(@Valid @RequestBody SolicitudPasswordRequest req) {
+    public ResponseEntity<ApiResponse<Void>> solicitarPassword(
+            @Valid @RequestBody SolicitudPasswordRequest req
+    ) {
         authService.solicitarRecuperacionContrasena(req.getEmail());
-        return ResponseEntity.ok(ApiResponse.ok(null, "Código de recuperación enviado al email"));
+
+        return ResponseEntity.ok(
+                ApiResponse.ok(
+                        null,
+                        "Código de recuperación enviado al email"
+                )
+        );
     }
 
     @PostMapping("/olvide-contrasena/confirmar")
-    public ResponseEntity<ApiResponse<Void>> confirmarPassword(@Valid @RequestBody ConfirmarPasswordRequest req) {
-        authService.confirmarRecuperacionContrasena(req.getEmail(), req.getCodigo(), req.getNuevaContrasena());
-        return ResponseEntity.ok(ApiResponse.ok(null, "Contraseña actualizada exitosamente"));
+    public ResponseEntity<ApiResponse<Void>> confirmarPassword(
+            @Valid @RequestBody ConfirmarPasswordRequest req
+    ) {
+        authService.confirmarRecuperacionContrasena(
+                req.getEmail(),
+                req.getCodigo(),
+                req.getNuevaContrasena()
+        );
+
+        return ResponseEntity.ok(
+                ApiResponse.ok(
+                        null,
+                        "Contraseña actualizada exitosamente"
+                )
+        );
     }
 }

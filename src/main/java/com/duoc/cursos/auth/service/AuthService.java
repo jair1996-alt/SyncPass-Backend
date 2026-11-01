@@ -3,19 +3,30 @@ package com.duoc.cursos.auth.service;
 import com.duoc.cursos.auth.dto.UsuarioResponse;
 import com.duoc.cursos.auth.model.Usuario;
 import com.duoc.cursos.auth.repository.UsuarioRepository;
+import com.duoc.cursos.common.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 @Service
 public class AuthService {
+
+    private static final String ROL_ESTUDIANTE = "ESTUDIANTE";
+
+    private static final Set<String> ROLES_PERMITIDOS = Set.of(
+            ROL_ESTUDIANTE,
+            "PROFESOR",
+            "COORDINADOR",
+            "ADMINISTRADOR"
+    );
 
     private final CognitoIdentityProviderClient cognitoClient;
     private final UsuarioRepository usuarioRepository;
@@ -29,68 +40,122 @@ public class AuthService {
     @Value("${aws.cognito.client-secret:}")
     private String clientSecret;
 
-    public AuthService(CognitoIdentityProviderClient cognitoClient, UsuarioRepository usuarioRepository) {
+    public AuthService(
+            CognitoIdentityProviderClient cognitoClient,
+            UsuarioRepository usuarioRepository
+    ) {
         this.cognitoClient = cognitoClient;
         this.usuarioRepository = usuarioRepository;
     }
 
     /**
-     * FLUJO: REGISTRO Y COPIA LOCAL CON MÚLTIPLES ROLES
+     * Alta administrativa de usuario. El acceso al endpoint debe estar protegido
+     * por Spring Security con ROLE_ADMINISTRADOR.
      */
-    @Transactional
-    public UsuarioResponse registrar(String email, String password, String nombre, Set<String> roles) {
-        // 1. Registro en Cognito
-        SignUpRequest.Builder signUpBuilder = SignUpRequest.builder()
-                .clientId(clientId)
-                .username(email)
-                .password(password)
-                .userAttributes(
-                        AttributeType.builder().name("email").value(email).build(),
-                        AttributeType.builder().name("name").value(nombre).build()
-                );
+    public UsuarioResponse registrar(
+            String email,
+            String password,
+            String nombre,
+            Set<String> rolesSolicitados
+    ) {
+        String emailNormalizado = normalizarEmail(email);
+        Set<String> roles = validarRoles(rolesSolicitados);
 
-        // Agregar SECRET_HASH si hay client secret
-        if (clientSecret != null && !clientSecret.isBlank()) {
-            signUpBuilder.secretHash(generateSecretHash(email));
+        if (usuarioRepository.existsByEmail(emailNormalizado)) {
+            throw new BusinessException(
+                    "USER_ALREADY_EXISTS",
+                    "El email ya está registrado"
+            );
         }
 
+        SignUpRequest.Builder signUpBuilder = SignUpRequest.builder()
+                .clientId(clientId)
+                .username(emailNormalizado)
+                .password(password)
+                .userAttributes(
+                        AttributeType.builder()
+                                .name("email")
+                                .value(emailNormalizado)
+                                .build(),
+                        AttributeType.builder()
+                                .name("name")
+                                .value(nombre)
+                                .build()
+                );
+
+        if (clientSecret != null && !clientSecret.isBlank()) {
+            signUpBuilder.secretHash(generateSecretHash(emailNormalizado));
+        }
+
+        // La operacion puede fallar con resultado remoto ambiguo.
+        // En tal caso NO eliminamos cuentas por nombre de usuario.
         SignUpResponse signUpResponse = cognitoClient.signUp(signUpBuilder.build());
         String cognitoSub = signUpResponse.userSub();
 
-        // 2. Asignación a Grupos en Cognito (Roles)
-        for (String rol : roles) {
-            AdminAddUserToGroupRequest groupRequest = AdminAddUserToGroupRequest.builder()
-                    .userPoolId(userPoolId)
-                    .username(email)
-                    .groupName(rol)
-                    .build();
-            cognitoClient.adminAddUserToGroup(groupRequest);
+        if (cognitoSub == null || cognitoSub.isBlank()) {
+            throw new BusinessException(
+                    "COGNITO_INVALID_RESPONSE",
+                    "Cognito no confirmó el identificador de la cuenta; se requiere revisión administrativa"
+            );
         }
 
-        // 3. Persistencia en Base de Datos Local
-        Usuario usuarioLocal = new Usuario();
-        usuarioLocal.setId(cognitoSub);
-        usuarioLocal.setEmail(email);
-        usuarioLocal.setNombre(nombre);
-        usuarioLocal.setRoles(roles);
+        try {
+            for (String rol : roles) {
+                AdminAddUserToGroupRequest request = AdminAddUserToGroupRequest.builder()
+                        .userPoolId(userPoolId)
+                        .username(emailNormalizado)
+                        .groupName(rol)
+                        .build();
+                cognitoClient.adminAddUserToGroup(request);
+            }
 
-        Usuario saved = usuarioRepository.save(usuarioLocal);
-        
-        return UsuarioResponse.builder()
-                .id(saved.getId())
-                .email(saved.getEmail())
-                .nombre(saved.getNombre())
-                .roles(saved.getRoles())
-                .build();
+            Usuario usuarioLocal = new Usuario();
+            usuarioLocal.setId(cognitoSub);
+            usuarioLocal.setEmail(emailNormalizado);
+            usuarioLocal.setNombre(nombre);
+            usuarioLocal.setRoles(roles);
+
+            Usuario saved = usuarioRepository.save(usuarioLocal);
+
+            return UsuarioResponse.builder()
+                    .id(saved.getId())
+                    .email(saved.getEmail())
+                    .nombre(saved.getNombre())
+                    .roles(saved.getRoles())
+                    .build();
+        } catch (RuntimeException original) {
+            try {
+                // Solo se intenta compensar una creacion cuya respuesta
+                // proporciono un identificador de usuario Cognito.
+                cognitoClient.adminDeleteUser(
+                        AdminDeleteUserRequest.builder()
+                                .userPoolId(userPoolId)
+                                .username(emailNormalizado)
+                                .build()
+                );
+            } catch (RuntimeException compensacionFallida) {
+                original.addSuppressed(compensacionFallida);
+                throw new BusinessException(
+                        "USER_CREATION_REQUIRES_RECONCILIATION",
+                        "La creación falló y no se pudo revertir en Cognito. Se requiere revisión administrativa.",
+                        original
+                );
+            }
+
+            throw new BusinessException(
+                    "USER_CREATION_FAILED",
+                    "No se pudo completar la creación del usuario.",
+                    original
+            );
+        }
     }
 
-    /**
-     * FLUJO: INICIO DE SESIÓN (LOGIN) PROXY
-     */
+    /** Inicio de sesión mediante Cognito USER_PASSWORD_AUTH. */
     public AuthenticationResultType login(String email, String password) {
         Map<String, String> authParameters = new HashMap<>();
         authParameters.put("USERNAME", email);
         authParameters.put("PASSWORD", password);
+
         if (clientSecret != null && !clientSecret.isBlank()) {
             authParameters.put("SECRET_HASH", generateSecretHash(email));
         }
@@ -101,66 +166,96 @@ public class AuthService {
                 .authParameters(authParameters)
                 .build();
 
-        InitiateAuthResponse authResponse = cognitoClient.initiateAuth(authRequest);
-        return authResponse.authenticationResult();
+        InitiateAuthResponse response = cognitoClient.initiateAuth(authRequest);
+        return response.authenticationResult();
     }
 
-    /**
-     * FLUJO: CIERRE DE SESIÓN GLOBAL (LOGOUT)
-     */
+    /** Cierre global de sesión. */
     public void logout(String accessToken) {
-        GlobalSignOutRequest signOutRequest = GlobalSignOutRequest.builder()
+        GlobalSignOutRequest request = GlobalSignOutRequest.builder()
                 .accessToken(accessToken)
                 .build();
-        cognitoClient.globalSignOut(signOutRequest);
+        cognitoClient.globalSignOut(request);
     }
 
-    /**
-     * FLUJO: OLVIDÉ MI CONTRASEÑA - PASO 1 (SOLICITUD)
-     */
+    /** Solicita el código de recuperación de contraseña. */
     public void solicitarRecuperacionContrasena(String email) {
-        ForgotPasswordRequest.Builder requestBuilder = ForgotPasswordRequest.builder()
+        ForgotPasswordRequest.Builder builder = ForgotPasswordRequest.builder()
                 .clientId(clientId)
                 .username(email);
 
         if (clientSecret != null && !clientSecret.isBlank()) {
-            requestBuilder.secretHash(generateSecretHash(email));
+            builder.secretHash(generateSecretHash(email));
         }
 
-        cognitoClient.forgotPassword(requestBuilder.build());
+        cognitoClient.forgotPassword(builder.build());
     }
 
-    /**
-     * FLUJO: OLVIDÉ MI CONTRASEÑA - PASO 2 (CONFIRMACIÓN)
-     */
-    public void confirmarRecuperacionContrasena(String email, String codigoOtp, String nuevaContrasena) {
-        ConfirmForgotPasswordRequest.Builder requestBuilder = ConfirmForgotPasswordRequest.builder()
+    /** Confirma el cambio de contraseña mediante el código recibido. */
+    public void confirmarRecuperacionContrasena(
+            String email,
+            String codigoOtp,
+            String nuevaContrasena
+    ) {
+        ConfirmForgotPasswordRequest.Builder builder = ConfirmForgotPasswordRequest.builder()
                 .clientId(clientId)
                 .username(email)
                 .confirmationCode(codigoOtp)
                 .password(nuevaContrasena);
 
         if (clientSecret != null && !clientSecret.isBlank()) {
-            requestBuilder.secretHash(generateSecretHash(email));
+            builder.secretHash(generateSecretHash(email));
         }
 
-        cognitoClient.confirmForgotPassword(requestBuilder.build());
+        cognitoClient.confirmForgotPassword(builder.build());
     }
 
-    /**
-     * Genera SECRET_HASH usando HMAC-SHA256 (username + clientId + clientSecret)
-     * Requerido cuando el App Client tiene "Generate client secret" activado
-     */
+    private String normalizarEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** Valida grupos contra una lista cerrada y asigna ESTUDIANTE por defecto. */
+    private Set<String> validarRoles(Set<String> rolesSolicitados) {
+        if (rolesSolicitados == null || rolesSolicitados.isEmpty()) {
+            Set<String> rolPorDefecto = new LinkedHashSet<>();
+            rolPorDefecto.add(ROL_ESTUDIANTE);
+            return rolPorDefecto;
+        }
+
+        Set<String> rolesValidados = new LinkedHashSet<>();
+        for (String rol : rolesSolicitados) {
+            if (rol == null || rol.isBlank()) {
+                throw new BusinessException(
+                        "VALIDATION_ERROR",
+                        "Los roles no pueden contener valores vacíos"
+                );
+            }
+
+            String rolNormalizado = rol.trim().toUpperCase(Locale.ROOT);
+            if (!ROLES_PERMITIDOS.contains(rolNormalizado)) {
+                throw new BusinessException(
+                        "VALIDATION_ERROR",
+                        "Rol no permitido: " + rol
+                );
+            }
+            rolesValidados.add(rolNormalizado);
+        }
+        return rolesValidados;
+    }
+
+    /** Calcula SECRET_HASH para clientes Cognito con secreto. */
     private String generateSecretHash(String username) {
         try {
             javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-            javax.crypto.spec.SecretKeySpec secretKeySpec =
-                new javax.crypto.spec.SecretKeySpec(clientSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
+            javax.crypto.spec.SecretKeySpec key = new javax.crypto.spec.SecretKeySpec(
+                    clientSecret.getBytes(StandardCharsets.UTF_8),
+                    "HmacSHA256"
+            );
+            mac.init(key);
             byte[] hash = mac.doFinal((username + clientId).getBytes(StandardCharsets.UTF_8));
             return java.util.Base64.getEncoder().encodeToString(hash);
         } catch (Exception e) {
-            throw new RuntimeException("Error generando SECRET_HASH", e);
+            throw new IllegalStateException("Error generando SECRET_HASH", e);
         }
     }
 }
