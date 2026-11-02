@@ -218,6 +218,61 @@ public class SecurityConfig {
                         ).hasRole("ADMINISTRADOR")
 
                         /**
+                         * CURSOS - CONSULTA GENERAL.
+                         *
+                         * Disponible para los cuatro roles. Las restricciones
+                         * por recurso se aplican en la capa de servicio.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/cursos",
+                                "/api/cursos/**"
+                        ).hasAnyRole(
+                                "ESTUDIANTE",
+                                "PROFESOR",
+                                "COORDINADOR",
+                                "ADMINISTRADOR"
+                        )
+
+                        /**
+                         * CURSOS - LISTADO DE ESTUDIANTES DE UN CURSO.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/cursos/*/estudiantes"
+                        ).hasAnyRole(
+                                "PROFESOR",
+                                "COORDINADOR",
+                                "ADMINISTRADOR"
+                        )
+
+                        /**
+                         * DOCENTES Y ESTUDIANTES - CONSULTA.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/docentes",
+                                "/api/docentes/**",
+                                "/api/estudiantes",
+                                "/api/estudiantes/**"
+                        ).hasAnyRole(
+                                "PROFESOR",
+                                "COORDINADOR",
+                                "ADMINISTRADOR"
+                        )
+
+                        /**
+                         * CURSOS - GESTIÓN Y ASIGNACIÓN DE DOCENTES.
+                         */
+                        .requestMatchers(
+                                "/api/cursos",
+                                "/api/cursos/**"
+                        ).hasAnyRole(
+                                "COORDINADOR",
+                                "ADMINISTRADOR"
+                        )
+
+                        /**
                          * Cualquier endpoint futuro
                          * queda bloqueado por defecto.
                          */

@@ -129,8 +129,12 @@ public class GlobalExceptionHandler {
         if ("RESOURCE_NOT_FOUND".equals(ex.getCode())) {
             status = HttpStatus.NOT_FOUND;
         } else if ("PROJECT_HAS_PARTICIPANTS".equals(ex.getCode())
-                || "PARTICIPANT_EMAIL_CONFLICT".equals(ex.getCode())) {
+                || "PARTICIPANT_EMAIL_CONFLICT".equals(ex.getCode())
+                || "COURSE_CODE_CONFLICT".equals(ex.getCode())
+                || "ALREADY_ENROLLED".equals(ex.getCode())) {
             status = HttpStatus.CONFLICT;
+        } else if ("FORBIDDEN".equals(ex.getCode())) {
+            status = HttpStatus.FORBIDDEN;
         }
         return ResponseEntity.status(status)
                 .body(new ErrorResponse(ex.getCode(), ex.getMessage(), status.value()));
