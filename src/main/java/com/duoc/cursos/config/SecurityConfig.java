@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 
 import org.springframework.http.HttpMethod;
 
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -33,6 +34,7 @@ import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final CorsProperties corsProperties;
@@ -271,6 +273,20 @@ public class SecurityConfig {
                                 "COORDINADOR",
                                 "ADMINISTRADOR"
                         )
+
+                        /**
+                         * ASISTENCIAS.
+                         *
+                         * ADMINISTRADOR y COORDINADOR: consultar y registrar.
+                         * PROFESOR: consultar y registrar únicamente en cursos asignados (validado en servicio).
+                         * ESTUDIANTE: consultar exclusivamente su historial personal.
+                         */
+                        .requestMatchers(HttpMethod.GET, "/api/asistencias")
+                        .hasAnyRole("ADMINISTRADOR", "COORDINADOR", "PROFESOR")
+                        .requestMatchers(HttpMethod.POST, "/api/asistencias/sesiones")
+                        .hasAnyRole("ADMINISTRADOR", "COORDINADOR", "PROFESOR")
+                        .requestMatchers(HttpMethod.GET, "/api/asistencias/estudiante/{estudianteId}")
+                        .hasAnyRole("ESTUDIANTE", "PROFESOR", "COORDINADOR", "ADMINISTRADOR")
 
                         /**
                          * Cualquier endpoint futuro

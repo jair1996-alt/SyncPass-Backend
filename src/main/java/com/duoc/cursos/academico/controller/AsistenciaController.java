@@ -9,6 +9,7 @@ import com.duoc.cursos.common.dto.ApiResponse;
 import jakarta.validation.Valid;
 
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,6 +33,7 @@ public class AsistenciaController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR','COORDINADOR','PROFESOR')")
     public ApiResponse<List<AsistenciaResponse>> consultar(
             @RequestParam Long cursoId,
             @RequestParam
@@ -44,6 +46,7 @@ public class AsistenciaController {
     }
 
     @PostMapping("/sesiones")
+    @PreAuthorize("hasAnyRole('ADMINISTRADOR','COORDINADOR','PROFESOR')")
     public ApiResponse<List<AsistenciaResponse>> guardarSesion(
             @Valid @RequestBody SesionAsistenciaRequest request) {
 
@@ -53,6 +56,7 @@ public class AsistenciaController {
     }
 
     @GetMapping("/estudiante/{estudianteId}")
+    @PreAuthorize("hasAnyRole('ESTUDIANTE','PROFESOR','COORDINADOR','ADMINISTRADOR')")
     public ApiResponse<List<AsistenciaResponse>> historialEstudiante(
             @PathVariable String estudianteId) {
 
