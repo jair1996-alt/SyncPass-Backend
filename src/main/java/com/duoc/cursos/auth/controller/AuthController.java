@@ -1,4 +1,3 @@
-
 package com.duoc.cursos.auth.controller;
 
 import com.duoc.cursos.auth.dto.*;
@@ -25,6 +24,7 @@ public class AuthController {
                 req.getEmail(),
                 req.getPassword(),
                 req.getNombre(),
+                req.getPhoneNumber(),
                 req.getRoles()
         );
 

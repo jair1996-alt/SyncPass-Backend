@@ -1,8 +1,8 @@
-
 package com.duoc.cursos.auth.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -22,6 +22,10 @@ public class RegistroRequest {
     @NotBlank
     @Size(max = 100)
     private String nombre;
+
+    @NotBlank
+    @Pattern(regexp = "^\\+[1-9]\\d{1,14}$", message = "Debe tener formato internacional E.164, por ejemplo +56912345678")
+    private String phoneNumber;
 
     /**
      * Roles que el ADMINISTRADOR asigna al crear la cuenta.

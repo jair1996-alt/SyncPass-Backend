@@ -1,4 +1,3 @@
-
 package com.duoc.cursos.auth.service;
 
 import com.duoc.cursos.auth.dto.UsuarioResponse;
@@ -86,10 +85,12 @@ public class AuthService {
             String email,
             String password,
             String nombre,
+            String phoneNumber,
             Set<String> rolesSolicitados
     ) {
 
         String emailNormalizado = normalizarEmail(email);
+        String telefonoNormalizado = phoneNumber.trim();
 
         Set<String> roles = validarRoles(rolesSolicitados);
 
@@ -121,6 +122,11 @@ public class AuthService {
                                 AttributeType.builder()
                                         .name("name")
                                         .value(nombre)
+                                        .build(),
+
+                                AttributeType.builder()
+                                        .name("phone_number")
+                                        .value(telefonoNormalizado)
                                         .build()
                         );
 

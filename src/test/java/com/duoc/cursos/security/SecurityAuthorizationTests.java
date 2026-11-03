@@ -70,6 +70,7 @@ class SecurityAuthorizationTests {
               "email": "nuevo@duoc.cl",
               "password": "Password123!",
               "nombre": "Nuevo Usuario",
+              "phoneNumber": "+56912345678",
               "roles": ["PROFESOR"]
             }
             """;
@@ -300,6 +301,7 @@ class SecurityAuthorizationTests {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyString(),
                 anySet()
         )).thenReturn(UsuarioResponse.builder()
                 .id("sub-test")
@@ -318,6 +320,7 @@ class SecurityAuthorizationTests {
                 eq("nuevo@duoc.cl"),
                 eq("Password123!"),
                 eq("Nuevo Usuario"),
+                eq("+56912345678"),
                 eq(Set.of("PROFESOR"))
         );
     }

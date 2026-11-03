@@ -128,8 +128,18 @@ class AuthServiceRoleValidationTests {
                 "Nuevo@Duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("profesor", "COORDINADOR")
         );
+
+        ArgumentCaptor<SignUpRequest> signUpCaptor =
+                ArgumentCaptor.forClass(SignUpRequest.class);
+        verify(cognitoClient).signUp(signUpCaptor.capture());
+        assertThat(signUpCaptor.getValue().userAttributes())
+                .anySatisfy(attribute -> {
+                    assertThat(attribute.name()).isEqualTo("phone_number");
+                    assertThat(attribute.value()).isEqualTo("+56912345678");
+                });
 
         ArgumentCaptor<AdminAddUserToGroupRequest> captor =
                 ArgumentCaptor.forClass(
@@ -180,6 +190,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Administrador",
+                "+56912345678",
                 Set.of("ADMINISTRADOR")
         );
 
@@ -208,6 +219,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("SUPERADMIN")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -239,6 +251,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 null
         );
 
@@ -270,6 +283,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("ESTUDIANTE")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -294,6 +308,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Profesor",
+                "+56912345678",
                 Set.of("PROFESOR")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -336,6 +351,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("PROFESOR")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -389,6 +405,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("ESTUDIANTE")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -445,6 +462,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("PROFESOR")
         ))
                 .isInstanceOf(BusinessException.class)
@@ -483,6 +501,7 @@ class AuthServiceRoleValidationTests {
                 "nuevo@duoc.cl",
                 "Password123!",
                 "Nuevo Usuario",
+                "+56912345678",
                 Set.of("ESTUDIANTE")
         ))
                 .isInstanceOf(IllegalStateException.class);
