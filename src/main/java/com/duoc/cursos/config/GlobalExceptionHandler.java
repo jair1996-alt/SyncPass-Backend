@@ -126,15 +126,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(com.duoc.cursos.common.exception.BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(com.duoc.cursos.common.exception.BusinessException ex) {
         HttpStatus status = HttpStatus.BAD_REQUEST;
-        if ("RESOURCE_NOT_FOUND".equals(ex.getCode())) {
+        if ("RESOURCE_NOT_FOUND".equals(ex.getCode())
+                || "USER_NOT_FOUND".equals(ex.getCode())) {
             status = HttpStatus.NOT_FOUND;
         } else if ("PROJECT_HAS_PARTICIPANTS".equals(ex.getCode())
                 || "PARTICIPANT_EMAIL_CONFLICT".equals(ex.getCode())
                 || "COURSE_CODE_CONFLICT".equals(ex.getCode())
-                || "ALREADY_ENROLLED".equals(ex.getCode())) {
+                || "ALREADY_ENROLLED".equals(ex.getCode())
+                || "USER_HAS_DEPENDENCIES".equals(ex.getCode())) {
             status = HttpStatus.CONFLICT;
-        } else if ("FORBIDDEN".equals(ex.getCode())) {
+        } else if ("FORBIDDEN".equals(ex.getCode())
+                || "CANNOT_DELETE_SELF".equals(ex.getCode())
+                || "PROTECTED_ADMIN_ACCOUNT".equals(ex.getCode())) {
             status = HttpStatus.FORBIDDEN;
+        } else if ("COGNITO_DELETE_FORBIDDEN".equals(ex.getCode())
+                || "COGNITO_DELETE_THROTTLED".equals(ex.getCode())
+                || "COGNITO_DELETE_FAILED".equals(ex.getCode())) {
+            status = HttpStatus.SERVICE_UNAVAILABLE;
+        } else if ("USER_DELETE_REQUIRES_RECONCILIATION".equals(ex.getCode())) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
         return ResponseEntity.status(status)
                 .body(new ErrorResponse(ex.getCode(), ex.getMessage(), status.value()));

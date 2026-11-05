@@ -14,4 +14,6 @@ public interface CursoRepository extends JpaRepository<Curso, Long> {
     boolean existsByCodigo(String codigo);
 
     boolean existsByCodigoAndIdNot(String codigo, Long id);
+
+    long countByDocenteId(String docenteId);
 }

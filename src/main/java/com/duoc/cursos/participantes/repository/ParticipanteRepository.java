@@ -16,4 +16,6 @@ public interface ParticipanteRepository extends JpaRepository<Participante, Long
     boolean existsByProyecto_IdAndEmailAndIdNot(Long proyectoId, String email, Long id);
 
     boolean existsByProyecto_Id(Long proyectoId);
+
+    long countByEmailIgnoreCase(String email);
 }

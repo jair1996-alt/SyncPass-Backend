@@ -19,7 +19,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminAddUserToGroupRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminConfirmSignUpRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminDeleteUserRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminUpdateUserAttributesRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.SignUpRequest;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.SignUpResponse;
 
@@ -30,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -210,6 +213,263 @@ class AuthServiceRoleValidationTests {
 
         assertThat(response.getRoles())
                 .containsExactly("ADMINISTRADOR");
+    }
+
+    @Test
+    void registroExitosoConfirmaLaCuentaAntesDeAsignarGruposYGuardar() {
+
+        when(usuarioRepository.existsByEmail("nuevo@duoc.cl"))
+                .thenReturn(false);
+
+        when(cognitoClient.signUp(any(SignUpRequest.class)))
+                .thenReturn(
+                        SignUpResponse.builder()
+                                .userSub("sub-test")
+                                .build()
+                );
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.registrar(
+                "nuevo@duoc.cl",
+                "Password123!",
+                "Nuevo Usuario",
+                "+56912345678",
+                Set.of("ESTUDIANTE")
+        );
+
+        ArgumentCaptor<AdminConfirmSignUpRequest> captor =
+                ArgumentCaptor.forClass(
+                        AdminConfirmSignUpRequest.class
+                );
+
+        verify(cognitoClient)
+                .adminConfirmSignUp(captor.capture());
+
+        assertThat(captor.getValue().userPoolId())
+                .isEqualTo("us-east-1_test");
+
+        assertThat(captor.getValue().username())
+                .isEqualTo("sub-test");
+
+        /*
+         * La confirmación debe ocurrir después de SignUp y antes de
+         * asignar grupos o persistir en PostgreSQL.
+         */
+        var ordered = inOrder(cognitoClient, usuarioRepository);
+
+        ordered.verify(cognitoClient).signUp(any(SignUpRequest.class));
+        ordered.verify(cognitoClient)
+                .adminConfirmSignUp(any(AdminConfirmSignUpRequest.class));
+        ordered.verify(cognitoClient)
+                .adminAddUserToGroup(any(AdminAddUserToGroupRequest.class));
+        ordered.verify(usuarioRepository).save(any(Usuario.class));
+    }
+
+    @Test
+    void cuentaYaConfirmadaPorCognitoNoSeVuelveAConfirmar() {
+
+        when(usuarioRepository.existsByEmail("nuevo@duoc.cl"))
+                .thenReturn(false);
+
+        when(cognitoClient.signUp(any(SignUpRequest.class)))
+                .thenReturn(
+                        SignUpResponse.builder()
+                                .userSub("sub-test")
+                                .userConfirmed(true)
+                                .build()
+                );
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        UsuarioResponse response = authService.registrar(
+                "nuevo@duoc.cl",
+                "Password123!",
+                "Nuevo Usuario",
+                "+56912345678",
+                Set.of("ESTUDIANTE")
+        );
+
+        /*
+         * Una cuenta que Cognito ya confirmó (por ejemplo, mediante
+         * un trigger pre sign-up) no debe recibir AdminConfirmSignUp:
+         * la API fallaría porque ya está en estado CONFIRMED.
+         */
+        verify(cognitoClient, never())
+                .adminConfirmSignUp(
+                        any(AdminConfirmSignUpRequest.class)
+                );
+
+        verify(usuarioRepository).save(any(Usuario.class));
+
+        assertThat(response.getRoles())
+                .containsExactly("ESTUDIANTE");
+    }
+
+    @Test
+    void confirmacionNoMarcaEmailNiTelefonoComoVerificados() {
+
+        when(usuarioRepository.existsByEmail("nuevo@duoc.cl"))
+                .thenReturn(false);
+
+        when(cognitoClient.signUp(any(SignUpRequest.class)))
+                .thenReturn(
+                        SignUpResponse.builder()
+                                .userSub("sub-test")
+                                .build()
+                );
+
+        when(usuarioRepository.save(any(Usuario.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        authService.registrar(
+                "nuevo@duoc.cl",
+                "Password123!",
+                "Nuevo Usuario",
+                "+56912345678",
+                Set.of("ESTUDIANTE")
+        );
+
+        ArgumentCaptor<SignUpRequest> signUpCaptor =
+                ArgumentCaptor.forClass(SignUpRequest.class);
+
+        verify(cognitoClient).signUp(signUpCaptor.capture());
+
+        assertThat(signUpCaptor.getValue().userAttributes())
+                .extracting(attribute -> attribute.name())
+                .doesNotContain(
+                        "email_verified",
+                        "phone_number_verified"
+                );
+
+        /*
+         * AdminConfirmSignUp solo cambia el estado de la cuenta.
+         * No se actualizan atributos de verificación.
+         */
+        verify(cognitoClient, never())
+                .adminUpdateUserAttributes(
+                        any(AdminUpdateUserAttributesRequest.class)
+                );
+    }
+
+    @Test
+    void falloAlConfirmarCuentaRevierteCuentaCognito() {
+
+        when(usuarioRepository.existsByEmail("nuevo@duoc.cl"))
+                .thenReturn(false);
+
+        when(cognitoClient.signUp(any(SignUpRequest.class)))
+                .thenReturn(
+                        SignUpResponse.builder()
+                                .userSub("sub-test")
+                                .build()
+                );
+
+        doThrow(new IllegalStateException(
+                "Fallo simulado AdminConfirmSignUp"
+        ))
+                .when(cognitoClient)
+                .adminConfirmSignUp(
+                        any(AdminConfirmSignUpRequest.class)
+                );
+
+        assertThatThrownBy(() -> authService.registrar(
+                "nuevo@duoc.cl",
+                "Password123!",
+                "Nuevo Usuario",
+                "+56912345678",
+                Set.of("ESTUDIANTE")
+        ))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception =
+                            (BusinessException) error;
+
+                    assertThat(exception.getCode())
+                            .isEqualTo("USER_CREATION_FAILED");
+                });
+
+        ArgumentCaptor<AdminDeleteUserRequest> captor =
+                ArgumentCaptor.forClass(
+                        AdminDeleteUserRequest.class
+                );
+
+        verify(cognitoClient)
+                .adminDeleteUser(captor.capture());
+
+        assertThat(captor.getValue().username())
+                .isEqualTo("sub-test");
+
+        assertThat(captor.getValue().userPoolId())
+                .isEqualTo("us-east-1_test");
+
+        verify(cognitoClient, never())
+                .adminAddUserToGroup(
+                        any(AdminAddUserToGroupRequest.class)
+                );
+
+        verify(usuarioRepository, never())
+                .save(any(Usuario.class));
+    }
+
+    @Test
+    void falloDeConfirmacionYCompensacionSolicitaRevisionAdministrativa() {
+
+        when(usuarioRepository.existsByEmail("nuevo@duoc.cl"))
+                .thenReturn(false);
+
+        when(cognitoClient.signUp(any(SignUpRequest.class)))
+                .thenReturn(
+                        SignUpResponse.builder()
+                                .userSub("sub-test")
+                                .build()
+                );
+
+        doThrow(new IllegalStateException(
+                "Fallo confirmando cuenta"
+        ))
+                .when(cognitoClient)
+                .adminConfirmSignUp(
+                        any(AdminConfirmSignUpRequest.class)
+                );
+
+        doThrow(new IllegalStateException(
+                "Fallo eliminando cuenta"
+        ))
+                .when(cognitoClient)
+                .adminDeleteUser(
+                        any(AdminDeleteUserRequest.class)
+                );
+
+        assertThatThrownBy(() -> authService.registrar(
+                "nuevo@duoc.cl",
+                "Password123!",
+                "Nuevo Usuario",
+                "+56912345678",
+                Set.of("ESTUDIANTE")
+        ))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception =
+                            (BusinessException) error;
+
+                    assertThat(exception.getCode())
+                            .isEqualTo(
+                                    "USER_CREATION_REQUIRES_RECONCILIATION"
+                            );
+
+                    assertThat(exception.getCause())
+                            .isNotNull();
+
+                    assertThat(
+                            exception.getCause().getSuppressed()
+                    ).hasSize(1);
+                });
+
+        verify(usuarioRepository, never())
+                .save(any(Usuario.class));
     }
 
     @Test

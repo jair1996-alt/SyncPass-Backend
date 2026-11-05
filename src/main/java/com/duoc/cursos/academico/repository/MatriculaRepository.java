@@ -18,4 +18,6 @@ public interface MatriculaRepository extends JpaRepository<Matricula, Long> {
     Matricula findByCurso_IdAndEstudianteId(Long cursoId, String estudianteId);
 
     long countByCurso_Id(Long cursoId);
+
+    long countByEstudianteId(String estudianteId);
 }

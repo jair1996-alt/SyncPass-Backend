@@ -5,6 +5,8 @@ import com.duoc.cursos.auth.model.Usuario;
 import com.duoc.cursos.auth.repository.UsuarioRepository;
 import com.duoc.cursos.common.exception.BusinessException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +23,9 @@ import java.util.Set;
 
 @Service
 public class AuthService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(AuthService.class);
 
     private static final String ROL_ESTUDIANTE = "ESTUDIANTE";
     private static final String ROL_PROFESOR = "PROFESOR";
@@ -79,7 +84,10 @@ public class AuthService {
      * El endpoint debe estar protegido mediante
      * ROLE_ADMINISTRADOR en Spring Security.
      *
-     * Mantiene el flujo SignUp existente.
+     * Conserva el flujo SignUp existente y lo completa con
+     * AdminConfirmSignUp para que la cuenta quede en estado
+     * CONFIRMED y el usuario pueda iniciar sesión con la
+     * contraseña inicial definida por el administrador.
      */
     public UsuarioResponse registrar(
             String email,
@@ -156,6 +164,38 @@ public class AuthService {
         try {
 
             /*
+             * Confirmar administrativamente la cuenta recién creada.
+             *
+             * SignUp crea la cuenta en estado UNCONFIRMED. Sin esta
+             * llamada el usuario no puede iniciar sesión hasta que un
+             * administrador lo confirme manualmente desde AWS Console.
+             *
+             * AdminConfirmSignUp cambia únicamente el estado de la
+             * cuenta a CONFIRMED. NO verifica el correo ni el teléfono:
+             * no se envían ni se establecen email_verified ni
+             * phone_number_verified.
+             *
+             * Se utiliza el sub devuelto por SignUp, que identifica de
+             * forma inequívoca la cuenta recién creada y evita operar
+             * sobre otra cuenta con el mismo email.
+             *
+             * Si el User Pool ya auto-confirmó la cuenta, no se repite
+             * la operación: AdminConfirmSignUp fallaría sobre una
+             * cuenta que ya está en estado CONFIRMED.
+             */
+            if (Boolean.TRUE.equals(signUpResponse.userConfirmed())) {
+
+                log.debug(
+                        "La cuenta ya fue confirmada por Cognito. sub={}",
+                        cognitoSub
+                );
+
+            } else {
+
+                confirmarCuentaEnCognito(cognitoSub);
+            }
+
+            /*
              * Asociar el usuario recién creado
              * a los grupos reales de Cognito.
              */
@@ -198,7 +238,10 @@ public class AuthService {
         } catch (RuntimeException original) {
 
             /*
-             * Compensación de una creación confirmada.
+             * Compensación de una creación parcial.
+             *
+             * Puede fallar la confirmación administrativa, la
+             * asignación de grupos o la persistencia en PostgreSQL.
              *
              * Utilizamos el sub devuelto por SignUp,
              * no el correo de otra cuenta.
@@ -206,6 +249,12 @@ public class AuthService {
              * Si falla la compensación, se informa
              * que se requiere conciliación administrativa.
              */
+            log.error(
+                    "Registro fallido; se intentará compensar en Cognito. sub={}",
+                    cognitoSub,
+                    original
+            );
+
             try {
 
                 cognitoClient.adminDeleteUser(
@@ -218,6 +267,13 @@ public class AuthService {
             } catch (RuntimeException compensacionFallida) {
 
                 original.addSuppressed(compensacionFallida);
+
+                log.error(
+                        "No se pudo compensar la cuenta en Cognito; " +
+                                "se requiere conciliación administrativa. sub={}",
+                        cognitoSub,
+                        compensacionFallida
+                );
 
                 throw new BusinessException(
                         "USER_CREATION_REQUIRES_RECONCILIATION",
@@ -233,6 +289,26 @@ public class AuthService {
                     original
             );
         }
+    }
+
+    /**
+     * Confirma administrativamente una cuenta recién creada.
+     *
+     * La operación requiere credenciales IAM con el permiso
+     * cognito-idp:AdminConfirmSignUp y no utiliza SECRET_HASH,
+     * porque es una operación de la API administrativa.
+     *
+     * No modifica atributos de verificación del usuario.
+     */
+    private void confirmarCuentaEnCognito(String cognitoSub) {
+
+        AdminConfirmSignUpRequest request =
+                AdminConfirmSignUpRequest.builder()
+                        .userPoolId(userPoolId)
+                        .username(cognitoSub)
+                        .build();
+
+        cognitoClient.adminConfirmSignUp(request);
     }
 
     /**

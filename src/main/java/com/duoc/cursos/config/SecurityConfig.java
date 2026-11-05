@@ -149,6 +149,31 @@ public class SecurityConfig {
                         ).hasRole("ADMINISTRADOR")
 
                         /**
+                         * CONSULTA ADMINISTRATIVA DE USUARIOS.
+                         *
+                         * Solo ADMINISTRADOR. Los datos se obtienen de
+                         * PostgreSQL; no se consulta Cognito.
+                         */
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/usuarios",
+                                "/api/usuarios/**"
+                        ).hasRole("ADMINISTRADOR")
+
+                        /**
+                         * ELIMINACIÓN ADMINISTRATIVA DE USUARIOS.
+                         *
+                         * Solo ADMINISTRADOR. El identificador de ruta es el
+                         * sub de Cognito. La lógica de autoprotección y
+                         * dependencias se valida en el servicio.
+                         */
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/usuarios",
+                                "/api/usuarios/**"
+                        ).hasRole("ADMINISTRADOR")
+
+                        /**
                          * ENDPOINTS PÚBLICOS.
                          */
                         .requestMatchers(
